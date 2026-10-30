@@ -32,33 +32,42 @@
       // Navigation
       const [activeTab, setActiveTab] = useState('dashboard');
       const [infoOpen, setInfoOpen] = useState(false);
-
-      // Sous-vue pour l'Agenda (calendar vs agenda list)
       const [calendarSubView, setCalendarSubView] = useState('calendar');
 
-      // Profil utilisateur
+      // Profil
       const [userProfile, setUserProfile] = useState(() => {
         const saved = localStorage.getItem('kore_userProfile');
         return saved ? JSON.parse(saved) : { firstName: '', lastName: '' };
       });
 
-      // Module Kanban (Projets)
+      // Kanban
       const [tasks, setTasks] = useState(() => {
         const saved = localStorage.getItem('kore_tasks');
         return saved ? JSON.parse(saved) : [];
       });
       const [newTaskTitle, setNewTaskTitle] = useState('');
 
-      // Module Agenda (Calendrier) avec nettoyage auto des événements > 7 jours
+      // Notes
+      const [notes, setNotes] = useState(() => {
+        const saved = localStorage.getItem('kore_notes');
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [newNoteTitle, setNewNoteTitle] = useState('');
+      const [newNoteContent, setNewNoteContent] = useState('');
+
+      // Agenda & Events avec conservation des Anniversaires (> 7 jours)
       const [events, setEvents] = useState(() => {
         const saved = localStorage.getItem('kore_events');
         if (!saved) return [];
         try {
           const parsed = JSON.parse(saved);
           const now = new Date();
-          // Filtrer les événements de plus de 7 jours
           return parsed.filter(ev => {
             if (!ev.date) return false;
+            const titleLower = (ev.title || '').toLowerCase();
+            const isAnniversary = titleLower.includes('anniv') || titleLower.includes('anniversaire') || titleLower.includes('birthday') || ev.category === 'Anniv';
+            if (isAnniversary) return true;
+            
             const evDate = new Date(ev.date);
             const diffDays = (now - evDate) / (1000 * 60 * 60 * 24);
             return diffDays <= 7;
@@ -70,11 +79,7 @@
 
       const [newEventTitle, setNewEventTitle] = useState('');
       const [newEventDate, setNewEventDate] = useState('');
-
-      // Module CV Analyzer
-      const [cvText, setCvText] = useState('');
-      const [jobDesc, setJobDesc] = useState('');
-      const [cvAnalysis, setCvAnalysis] = useState(null);
+      const [newEventCategory, setNewEventCategory] = useState('RDV');
 
       // Synchro Google API State
       const [googleClientId, setGoogleClientId] = useState(() => {
@@ -82,74 +87,70 @@
       });
       const [syncStatus, setSyncStatus] = useState('');
 
-      // Sauvegarde automatique dans localStorage
-      useEffect(() => {
-        localStorage.setItem('kore_userProfile', JSON.stringify(userProfile));
-      }, [userProfile]);
+      // CV Analyzer State & Persistence
+      const [cvFileName, setCvFileName] = useState('');
+      const [cvPdfUrl, setCvPdfUrl] = useState('');
+      const [cvTextContent, setCvTextContent] = useState('');
+      const [jobDesc, setJobDesc] = useState('');
+      const [cvAnalysis, setCvAnalysis] = useState(() => {
+        const saved = localStorage.getItem('kore_cvAnalysis');
+        return saved ? JSON.parse(saved) : null;
+      });
 
-      useEffect(() => {
-        localStorage.setItem('kore_tasks', JSON.stringify(tasks));
-      }, [tasks]);
+      // State pour Calendrier Visuel
+      const [currentDate, setCurrentDate] = useState(new Date());
 
-      useEffect(() => {
-        localStorage.setItem('kore_events', JSON.stringify(events));
-      }, [events]);
+      // Sauvegardes dans localStorage
+      useEffect(() => { localStorage.setItem('kore_userProfile', JSON.stringify(userProfile)); }, [userProfile]);
+      useEffect(() => { localStorage.setItem('kore_tasks', JSON.stringify(tasks)); }, [tasks]);
+      useEffect(() => { localStorage.setItem('kore_notes', JSON.stringify(notes)); }, [notes]);
+      useEffect(() => { localStorage.setItem('kore_events', JSON.stringify(events)); }, [events]);
+      useEffect(() => { localStorage.setItem('kore_gclientId', googleClientId); }, [googleClientId]);
+      useEffect(() => { localStorage.setItem('kore_cvAnalysis', JSON.stringify(cvAnalysis)); }, [cvAnalysis]);
 
+      // Rendu des icônes Lucide sans blocage DOM
       useEffect(() => {
-        localStorage.setItem('kore_gclientId', googleClientId);
-      }, [googleClientId]);
+        const timer = setTimeout(() => {
+          if (window.lucide) window.lucide.createIcons();
+        }, 50);
+        return () => clearTimeout(timer);
+      }, [activeTab, calendarSubView, tasks, events, notes, cvAnalysis, infoOpen, currentDate]);
 
-      // Re-render icons quand l'onglet change
-      useEffect(() => {
-        if (window.lucide) {
-          window.lucide.createIcons();
-        }
-      }, [activeTab, calendarSubView, tasks, events, cvAnalysis, infoOpen]);
-
-      // Actions Profil
+      // Handlers Profil
       const handleProfileChange = (e) => {
         const { name, value } = e.target;
         setUserProfile(prev => ({ ...prev, [name]: value }));
       };
 
-      // Actions Kanban
+      // Handlers Kanban
       const addTask = (e) => {
         e.preventDefault();
         if (!newTaskTitle.trim()) return;
-        const newTask = {
-          id: Date.now(),
-          title: newTaskTitle,
-          status: 'todo'
-        };
-        setTasks([...tasks, newTask]);
+        setTasks([...tasks, { id: Date.now(), title: newTaskTitle, status: 'todo' }]);
         setNewTaskTitle('');
       };
+      const moveTask = (id, newStatus) => setTasks(tasks.map(t => t.id === id ? { ...t, status: newStatus } : t));
+      const deleteTask = (id) => setTasks(tasks.filter(t => t.id !== id));
 
-      const moveTask = (id, newStatus) => {
-        setTasks(tasks.map(t => t.id === id ? { ...t, status: newStatus } : t));
+      // Handlers Notes
+      const addNote = (e) => {
+        if (e) e.preventDefault();
+        if (!newNoteTitle.trim() && !newNoteContent.trim()) return;
+        setNotes([{ id: Date.now(), title: newNoteTitle || 'Sans titre', content: newNoteContent, date: new Date().toLocaleDateString('fr-FR') }, ...notes]);
+        setNewNoteTitle('');
+        setNewNoteContent('');
       };
+      const deleteNote = (id) => setNotes(notes.filter(n => n.id !== id));
 
-      const deleteTask = (id) => {
-        setTasks(tasks.filter(t => t.id !== id));
-      };
-
-      // Actions Agenda
+      // Handlers Agenda
       const addEvent = (e) => {
         e.preventDefault();
         if (!newEventTitle.trim() || !newEventDate) return;
-        const newEvent = {
-          id: Date.now(),
-          title: newEventTitle,
-          date: newEventDate
-        };
-        setEvents([...events, newEvent]);
+        setEvents([...events, { id: Date.now(), title: newEventTitle, date: newEventDate, category: newEventCategory }]);
         setNewEventTitle('');
         setNewEventDate('');
       };
-
-      const deleteEvent = (id) => {
-        setEvents(events.filter(e => e.id !== id));
-      };
+      const deleteEvent = (id) => setEvents(events.filter(e => e.id !== id));
 
       // Synchronisation Google Calendar API
       const handleGoogleSync = () => {
@@ -157,12 +158,10 @@
           setSyncStatus("⚠️ Google OAuth ne fonctionne pas directement sur un fichier local (file://). Publie ton site sur GitHub Pages !");
           return;
         }
-
         if (!googleClientId.trim()) {
           setSyncStatus("Veuillez saisir un Client ID Google Cloud valide.");
           return;
         }
-
         try {
           const client = google.accounts.oauth2.initTokenClient({
             client_id: googleClientId,
@@ -182,7 +181,8 @@
                   const fetchedEvents = data.items.map(item => ({
                     id: item.id,
                     title: item.summary || 'Événement sans titre',
-                    date: item.start?.dateTime ? item.start.dateTime.split('T')[0] : (item.start?.date || '')
+                    date: item.start?.dateTime ? item.start.dateTime.split('T')[0] : (item.start?.date || ''),
+                    category: 'RDV'
                   })).filter(e => e.date);
 
                   setEvents(prev => {
@@ -192,7 +192,6 @@
                     fetchedEvents.forEach(fe => {
                       const evDate = new Date(fe.date);
                       const diffDays = (now - evDate) / (1000 * 60 * 60 * 24);
-                      // Ajouter seulement si non existant et pas plus vieux que 7 jours
                       if (!existingIds.has(fe.id) && diffDays <= 7) {
                         combined.push(fe);
                       }
@@ -204,7 +203,7 @@
               } catch (err) {
                 setSyncStatus("Erreur lors du téléchargement des événements.");
               }
-            },
+            }
           });
           client.requestAccessToken();
         } catch (e) {
@@ -212,50 +211,84 @@
         }
       };
 
-      // Module CV Analyzer Logic
-      const analyzeCV = () => {
-        if (!cvText.trim() || !jobDesc.trim()) return;
-        const wordsCV = cvText.toLowerCase().split(/\W+/);
-        const wordsJob = jobDesc.toLowerCase().split(/\W+/);
-        
-        const keyWordsJob = [...new Set(wordsJob.filter(w => w.length > 3))];
-        const matched = keyWordsJob.filter(w => wordsCV.includes(w));
-        const score = Math.min(100, Math.round((matched.length / Math.max(1, keyWordsJob.length)) * 100) + 20);
+      // Fichier CV Upload (Fluid Native Preview)
+      const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setCvFileName(file.name);
+        const url = URL.createObjectURL(file);
+        setCvPdfUrl(url);
 
-        setCvAnalysis({
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setCvTextContent(event.target.result || file.name);
+        };
+        reader.readAsText(file);
+      };
+
+      // Analyse du CV
+      const runCVAnalysis = () => {
+        const textToAnalyze = (cvTextContent + " " + cvFileName).toLowerCase();
+        const wordsJob = jobDesc.toLowerCase().split(/\W+/);
+        const keyWordsJob = [...new Set(wordsJob.filter(w => w.length > 3))];
+
+        let matched = [];
+        let missing = [];
+
+        if (keyWordsJob.length > 0) {
+          matched = keyWordsJob.filter(w => textToAnalyze.includes(w));
+          missing = keyWordsJob.filter(w => !textToAnalyze.includes(w)).slice(0, 5);
+        } else {
+          matched = ["expériences", "compétences", "formation", "projet"];
+          missing = ["mots-clés de l'offre non renseignés"];
+        }
+
+        const baseRatio = keyWordsJob.length > 0 ? (matched.length / keyWordsJob.length) : 0.7;
+        const score = Math.min(100, Math.max(35, Math.round(baseRatio * 100) + 15));
+
+        const result = {
           score,
           matches: matched.slice(0, 8),
-          missing: keyWordsJob.filter(w => !wordsCV.includes(w)).slice(0, 5)
-        });
+          missing,
+          fileName: cvFileName || "CV téléchargé",
+          date: new Date().toLocaleDateString('fr-FR')
+        };
+        setCvAnalysis(result);
+      };
+
+      // Exporter l'analyse vers les Notes
+      const saveAnalysisToNotes = () => {
+        if (!cvAnalysis) return;
+        const title = `Analyse CV (${cvAnalysis.score}%) - ${cvAnalysis.fileName}`;
+        const content = `Score d'adéquation: ${cvAnalysis.score}%\n\nMots-clés trouvés:\n- ${cvAnalysis.matches.join(', ')}\n\nMots-clés manquants conseillés:\n- ${cvAnalysis.missing.join(', ')}`;
+        setNotes([{ id: Date.now(), title, content, date: new Date().toLocaleDateString('fr-FR') }, ...notes]);
+        alert("Résultat de l'analyse sauvegardé dans l'onglet Notes !");
       };
 
       // Export/Import JSON
       const exportData = () => {
-        const data = {
-          userProfile,
-          tasks,
-          events,
-          exportedAt: new Date().toISOString()
-        };
+        const data = { userProfile, tasks, notes, events, cvAnalysis, exportedAt: new Date().toISOString() };
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
-        const downloadAnchor = document.createElement('a');
-        downloadAnchor.setAttribute("href", dataStr);
-        downloadAnchor.setAttribute("download", `kore_backup_${new Date().toISOString().split('T')[0]}.json`);
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-        downloadAnchor.remove();
+        const anchor = document.createElement('a');
+        anchor.setAttribute("href", dataStr);
+        anchor.setAttribute("download", `kore_backup_${new Date().toISOString().split('T')[0]}.json`);
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
       };
 
       const importData = (e) => {
-        const fileReader = new FileReader();
+        const reader = new FileReader();
         if (e.target.files[0]) {
-          fileReader.readAsText(e.target.files[0], "UTF-8");
-          fileReader.onload = (event) => {
+          reader.readAsText(e.target.files[0], "UTF-8");
+          reader.onload = (event) => {
             try {
               const parsed = JSON.parse(event.target.result);
               if (parsed.userProfile) setUserProfile(parsed.userProfile);
               if (parsed.tasks) setTasks(parsed.tasks);
+              if (parsed.notes) setNotes(parsed.notes);
               if (parsed.events) setEvents(parsed.events);
+              if (parsed.cvAnalysis) setCvAnalysis(parsed.cvAnalysis);
               alert("Données importées avec succès !");
             } catch (err) {
               alert("Fichier JSON invalide.");
@@ -264,10 +297,21 @@
         }
       };
 
+      // Helper Couleurs Catégories
+      const getCategoryBadge = (cat) => {
+        switch (cat) {
+          case 'Devoir': return 'bg-purple-950 text-purple-300 border-purple-800';
+          case 'Sport': return 'bg-green-950 text-green-300 border-green-800';
+          case 'Anniv': return 'bg-pink-950 text-pink-300 border-pink-800';
+          case 'RDV': return 'bg-blue-950 text-blue-300 border-blue-800';
+          default: return 'bg-gray-800 text-gray-300 border-gray-700';
+        }
+      };
+
       return (
         <div className="flex min-h-screen bg-gray-900 text-gray-100">
           
-          {/* Bouton Info (i) en haut à droite */}
+          {/* Bouton d'informations */}
           <div className="fixed top-4 right-4 z-50">
             <button 
               onClick={() => setInfoOpen(!infoOpen)} 
@@ -276,15 +320,14 @@
             >
               <i data-lucide="info" className="w-5 h-5"></i>
             </button>
-
             {infoOpen && (
               <div className="absolute right-0 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-2xl text-sm">
                 <div className="flex items-center gap-2 mb-2 text-blue-400 font-bold">
                   <i data-lucide="shield-check" className="w-5 h-5"></i>
                   <span>100 % Local & Confidentiel</span>
                 </div>
-                <p className="text-gray-300 text-xs leading-relaxed mb-3">
-                  Toutes vos données restent stockées exclusivement dans votre navigateur via <code className="bg-gray-900 px-1 py-0.5 rounded text-blue-300">localStorage</code>.
+                <p className="text-gray-300 text-xs leading-relaxed">
+                  Toutes vos données (projets, notes, agenda, CV) restent strictement conservées dans votre navigateur via <code className="bg-gray-900 px-1 py-0.5 rounded text-blue-300">localStorage</code>.
                 </p>
               </div>
             )}
@@ -299,64 +342,41 @@
               </div>
 
               <nav className="space-y-1.5">
-                <button 
-                  onClick={() => setActiveTab('dashboard')} 
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
-                >
+                <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}>
                   <i data-lucide="layout-dashboard" className="w-4 h-4"></i> Tableau de bord
                 </button>
-                <button 
-                  onClick={() => setActiveTab('kanban')} 
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'kanban' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
-                >
+                <button onClick={() => setActiveTab('kanban')} className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'kanban' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}>
                   <i data-lucide="kanban" className="w-4 h-4"></i> Projets (Kanban)
                 </button>
-                <button 
-                  onClick={() => setActiveTab('calendar')} 
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'calendar' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
-                >
+                <button onClick={() => setActiveTab('calendar')} className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'calendar' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}>
                   <i data-lucide="calendar" className="w-4 h-4"></i> Agenda
                 </button>
-                <button 
-                  onClick={() => setActiveTab('cv')} 
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'cv' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
-                >
+                <button onClick={() => setActiveTab('notes')} className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'notes' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}>
+                  <i data-lucide="sticky-note" className="w-4 h-4"></i> Notes
+                </button>
+                <button onClick={() => setActiveTab('cv')} className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'cv' ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}>
                   <i data-lucide="file-text" className="w-4 h-4"></i> Analyse CV
                 </button>
               </nav>
             </div>
 
-            {/* Profil et Sauvegarde */}
+            {/* User Profile & Backup */}
             <div className="pt-6 border-t border-gray-800 space-y-4">
               <div className="bg-gray-900/60 p-3 rounded-lg border border-gray-800 space-y-2">
                 <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
                   <i data-lucide="user" className="w-3.5 h-3.5 text-blue-400"></i> Profil Utilisateur
                 </div>
-                <input 
-                  type="text" 
-                  name="firstName" 
-                  placeholder="Prénom" 
-                  value={userProfile.firstName} 
-                  onChange={handleProfileChange} 
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                />
-                <input 
-                  type="text" 
-                  name="lastName" 
-                  placeholder="Nom" 
-                  value={userProfile.lastName} 
-                  onChange={handleProfileChange} 
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                />
+                <input type="text" name="firstName" placeholder="Prénom" value={userProfile.firstName} onChange={handleProfileChange} className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500" />
+                <input type="text" name="lastName" placeholder="Nom" value={userProfile.lastName} onChange={handleProfileChange} className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500" />
               </div>
 
               <div>
                 <div className="text-xs font-medium text-gray-400 mb-2">Sauvegarde JSON</div>
                 <div className="flex gap-2">
-                  <button onClick={exportData} className="flex-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs py-1.5 px-2 rounded text-gray-300 flex items-center justify-center gap-1 transition-all">
+                  <button onClick={exportData} className="flex-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs py-1.5 px-2 rounded text-gray-300 flex items-center justify-center gap-1">
                     <i data-lucide="download" className="w-3.5 h-3.5"></i> Exporter
                   </button>
-                  <label className="flex-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs py-1.5 px-2 rounded text-gray-300 flex items-center justify-center gap-1 cursor-pointer transition-all">
+                  <label className="flex-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-xs py-1.5 px-2 rounded text-gray-300 flex items-center justify-center gap-1 cursor-pointer">
                     <i data-lucide="upload" className="w-3.5 h-3.5"></i> Importer
                     <input type="file" accept=".json" onChange={importData} className="hidden" />
                   </label>
@@ -365,10 +385,10 @@
             </div>
           </aside>
 
-          {/* Main Content Area */}
+          {/* Main Area */}
           <main className="flex-1 p-8 overflow-y-auto">
             
-            {/* Dashboard View */}
+            {/* Tableau de bord */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6">
                 <div>
@@ -378,7 +398,7 @@
                   <p className="text-gray-400 text-sm">Bienvenue sur ta Kore Workstation personnelle.</p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="bg-gray-800/40 border border-gray-800 p-5 rounded-xl">
                     <div className="text-gray-400 text-xs font-semibold mb-1">TÂCHES À FAIRE</div>
                     <div className="text-3xl font-bold text-blue-400">{tasks.filter(t => t.status === 'todo').length}</div>
@@ -391,7 +411,24 @@
                     <div className="text-gray-400 text-xs font-semibold mb-1">ÉVÉNEMENTS À VENIR</div>
                     <div className="text-3xl font-bold text-emerald-400">{events.length}</div>
                   </div>
+                  <div className="bg-gray-800/40 border border-gray-800 p-5 rounded-xl">
+                    <div className="text-gray-400 text-xs font-semibold mb-1">DERNIER SCORE CV</div>
+                    <div className="text-3xl font-bold text-purple-400">
+                      {cvAnalysis ? `${cvAnalysis.score}%` : 'N/A'}
+                    </div>
+                  </div>
                 </div>
+
+                {/* Section Récapitulative du CV */}
+                {cvAnalysis && (
+                  <div className="bg-gray-800/30 border border-gray-800 p-5 rounded-xl space-y-2">
+                    <div className="text-sm font-semibold text-gray-200 flex items-center gap-2">
+                      <i data-lucide="file-check" className="w-4 h-4 text-purple-400"></i>
+                      Dernier Résultat d'Analyse CV ({cvAnalysis.date})
+                    </div>
+                    <p className="text-xs text-gray-400">Score d'adéquation : <span className="font-bold text-purple-300">{cvAnalysis.score}%</span> pour {cvAnalysis.fileName}.</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -401,16 +438,8 @@
                 <h1 className="text-2xl font-bold text-white">Gestion de Projets</h1>
 
                 <form onSubmit={addTask} className="flex gap-2 max-w-md">
-                  <input 
-                    type="text" 
-                    placeholder="Nouvelle tâche..." 
-                    value={newTaskTitle} 
-                    onChange={e => setNewTaskTitle(e.target.value)} 
-                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
-                  />
-                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-medium transition-all">
-                    Ajouter
-                  </button>
+                  <input type="text" placeholder="Nouvelle tâche..." value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500" />
+                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-medium">Ajouter</button>
                 </form>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -459,84 +488,57 @@
               </div>
             )}
 
-            {/* Calendar & Agenda View */}
+            {/* Agenda View */}
             {activeTab === 'calendar' && (
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h1 className="text-2xl font-bold text-white">Agenda & Événements</h1>
-                  
-                  {/* DEUX BOUTONS DE BASCULE DE VUE */}
                   <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700 gap-1">
-                    <button 
-                      onClick={() => setCalendarSubView('calendar')}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${calendarSubView === 'calendar' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}
-                    >
-                      📅 Calendrier
-                    </button>
-                    <button 
-                      onClick={() => setCalendarSubView('agenda')}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${calendarSubView === 'agenda' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}
-                    >
-                      📋 Agenda (Liste)
-                    </button>
+                    <button onClick={() => setCalendarSubView('calendar')} className={`px-3 py-1.5 text-xs font-medium rounded-md ${calendarSubView === 'calendar' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>📅 Calendrier</button>
+                    <button onClick={() => setCalendarSubView('agenda')} className={`px-3 py-1.5 text-xs font-medium rounded-md ${calendarSubView === 'agenda' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>📋 Agenda (Liste)</button>
                   </div>
                 </div>
 
-                {/* Configuration Google Sync */}
+                {/* Google Sync */}
                 <div className="bg-gray-800/40 border border-gray-800 p-4 rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-gray-200">Synchronisation Google Calendar</h3>
-                    <button onClick={handleGoogleSync} className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-md font-medium">
-                      Synchroniser maintenant
-                    </button>
+                    <button onClick={handleGoogleSync} className="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-md">Synchroniser maintenant</button>
                   </div>
-                  <input 
-                    type="text" 
-                    placeholder="Google OAuth Client ID" 
-                    value={googleClientId} 
-                    onChange={e => setGoogleClientId(e.target.value)} 
-                    className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                  />
+                  <input type="text" placeholder="Google OAuth Client ID" value={googleClientId} onChange={e => setGoogleClientId(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200" />
                   {syncStatus && <div className="text-xs bg-gray-900 p-2.5 rounded border border-gray-700 text-blue-300">{syncStatus}</div>}
                 </div>
 
-                {/* Formulaire ajout événement */}
-                <form onSubmit={addEvent} className="flex gap-2 max-w-lg">
-                  <input 
-                    type="text" 
-                    placeholder="Titre de l'événement..." 
-                    value={newEventTitle} 
-                    onChange={e => setNewEventTitle(e.target.value)} 
-                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
-                  />
-                  <input 
-                    type="date" 
-                    value={newEventDate} 
-                    onChange={e => setNewEventDate(e.target.value)} 
-                    className="bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
-                  />
-                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-medium">
-                    Ajouter
-                  </button>
+                {/* Formulaire ajout événement avec catégorie */}
+                <form onSubmit={addEvent} className="flex gap-2 max-w-xl">
+                  <input type="text" placeholder="Titre de l'événement..." value={newEventTitle} onChange={e => setNewEventTitle(e.target.value)} className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100" />
+                  <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100" />
+                  <select value={newEventCategory} onChange={e => setNewEventCategory(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-gray-100">
+                    <option value="RDV">RDV</option>
+                    <option value="Devoir">Devoir</option>
+                    <option value="Sport">Sport</option>
+                    <option value="Anniv">Anniv</option>
+                    <option value="Autre">Autre</option>
+                  </select>
+                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-medium">Ajouter</button>
                 </form>
 
-                {/* Affichage conditionnel selon la vue choisie */}
-                {calendarSubView === 'calendar' ? (
-                  <div className="bg-gray-800/30 border border-gray-800 rounded-xl p-6 text-center text-gray-400">
-                    <p className="text-sm">Mode Calendrier visuel actif. (Utilisez "Agenda (Liste)" pour voir la liste détaillée).</p>
-                  </div>
-                ) : (
+                {/* Vue Agenda Liste */}
+                {calendarSubView === 'agenda' ? (
                   <div className="bg-gray-800/30 border border-gray-800 rounded-xl p-4">
-                    <h3 className="text-xs font-semibold text-gray-400 mb-3">LISTE DE L'AGENDA (Les événements de plus de 7 jours sont effacés automatiquement)</h3>
+                    <h3 className="text-xs font-semibold text-gray-400 mb-3">ÉVÉNEMENTS RÉCENTS (Conservés sauf si passés de 7j hors anniversaires)</h3>
                     <div className="space-y-2">
                       {events.length === 0 ? (
-                        <p className="text-sm text-gray-500 italic p-2">Aucun événement récent planifié.</p>
+                        <p className="text-sm text-gray-500 italic p-2">Aucun événement planifié.</p>
                       ) : (
                         events.map(ev => (
                           <div key={ev.id} className="bg-gray-800 p-3 rounded-lg border border-gray-700 flex justify-between items-center text-sm">
-                            <div>
-                              <div className="font-medium text-gray-200">{ev.title}</div>
-                              <div className="text-xs text-gray-400">📅 {ev.date}</div>
+                            <div className="flex items-center gap-3">
+                              <span className={`text-xs px-2 py-0.5 rounded border ${getCategoryBadge(ev.category)}`}>{ev.category || 'RDV'}</span>
+                              <div>
+                                <div className="font-medium text-gray-200">{ev.title}</div>
+                                <div className="text-xs text-gray-400">📅 {ev.date}</div>
+                              </div>
                             </div>
                             <button onClick={() => deleteEvent(ev.id)} className="text-xs text-red-400 hover:bg-gray-700 px-2 py-1 rounded">Supprimer</button>
                           </div>
@@ -544,29 +546,120 @@
                       )}
                     </div>
                   </div>
+                ) : (
+                  <div className="bg-gray-800/30 border border-gray-800 rounded-xl p-6 text-center text-gray-400">
+                    <p className="text-sm">Basculez sur l'onglet Agenda (Liste) pour afficher tous vos événements organisés par catégories.</p>
+                  </div>
                 )}
               </div>
             )}
 
-            {/* CV Analyzer View */}
+            {/* Notes View */}
+            {activeTab === 'notes' && (
+              <div className="space-y-6">
+                <h1 className="text-2xl font-bold text-white">Bloc-Notes</h1>
+
+                <form onSubmit={addNote} className="bg-gray-800/40 border border-gray-800 p-4 rounded-xl space-y-3 max-w-xl">
+                  <input type="text" placeholder="Titre de la note..." value={newNoteTitle} onChange={e => setNewNoteTitle(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100" />
+                  <textarea rows="3" placeholder="Contenu de la note..." value={newNoteContent} onChange={e => setNewNoteContent(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-100"></textarea>
+                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-medium">Créer la note</button>
+                </form>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {notes.length === 0 ? (
+                    <p className="text-sm text-gray-500 italic">Aucune note enregistrée.</p>
+                  ) : (
+                    notes.map(note => (
+                      <div key={note.id} className="bg-gray-800/60 border border-gray-700 p-4 rounded-xl space-y-2 flex flex-col justify-between">
+                        <div>
+                          <div className="flex justify-between items-start">
+                            <h3 className="font-bold text-gray-100 text-sm">{note.title}</h3>
+                            <span className="text-xs text-gray-400">{note.date}</span>
+                          </div>
+                          <p className="text-xs text-gray-300 mt-2 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+                        </div>
+                        <div className="pt-2 flex justify-end">
+                          <button onClick={() => deleteNote(note.id)} className="text-xs text-red-400 hover:bg-gray-700 px-2 py-1 rounded">Supprimer</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* CV Analyzer View (Fluid Preview) */}
             {activeTab === 'cv' && (
               <div className="space-y-6">
                 <h1 className="text-2xl font-bold text-white">Analyseur de CV</h1>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 mb-2">TEXTE DE VOTRE CV</label>
-                    <textarea rows="8" placeholder="Collez ici le contenu..." value={cvText} onChange={e => setCvText(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 focus:outline-none focus:border-blue-500"></textarea>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-2">TÉLÉVERSER VOTRE CV (PDF OU TEXTE)</label>
+                      <input type="file" accept=".pdf,.txt" onChange={handleFileUpload} className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2.5 text-xs text-gray-200" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-2">DESCRIPTION DU POSTE CIBLÉ (OPTIONNEL)</label>
+                      <textarea rows="6" placeholder="Collez l'offre d'emploi ici..." value={jobDesc} onChange={e => setJobDesc(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-100"></textarea>
+                    </div>
+
+                    <button onClick={runCVAnalysis} className="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm py-2.5 rounded-lg font-medium transition-all">
+                      ✨ Lancer l'analyse du CV
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 mb-2">DESCRIPTION DU POSTE CIBLÉ</label>
-                    <textarea rows="8" placeholder="Collez ici l'offre..." value={jobDesc} onChange={e => setJobDesc(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 focus:outline-none focus:border-blue-500"></textarea>
+
+                  {/* Zone de prévisualisation Native PDF */}
+                  <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 flex flex-col h-[400px]">
+                    <div className="text-xs font-semibold text-gray-400 mb-3 flex items-center justify-between">
+                      <span>APERÇU DU DOCUMENT</span>
+                      <span className="text-blue-400">{cvFileName || 'Aucun fichier'}</span>
+                    </div>
+                    {cvPdfUrl ? (
+                      <object data={cvPdfUrl} type="application/pdf" className="w-full flex-1 rounded border border-gray-700">
+                        <p className="text-xs text-gray-400 p-4">Aperçu du fichier chargé : {cvFileName}</p>
+                      </object>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-gray-500 border border-dashed border-gray-800 rounded-lg">
+                        <i data-lucide="file-text" className="w-10 h-10 mb-2 opacity-50"></i>
+                        <p className="text-xs">Chargez un fichier PDF pour afficher l'aperçu.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <button onClick={analyzeCV} className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-6 py-2.5 rounded-lg font-medium">Lancer l'analyse</button>
 
+                {/* Résultats de l'analyse */}
                 {cvAnalysis && (
                   <div className="bg-gray-800/40 border border-gray-800 p-6 rounded-xl space-y-4">
-                    <div className="text-3xl font-extrabold text-blue-400">{cvAnalysis.score}% <span className="text-sm font-normal text-gray-300">Score d'adéquation</span></div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-4">
+                        <div className="text-4xl font-extrabold text-blue-400">{cvAnalysis.score}%</div>
+                        <div className="text-sm text-gray-300">Score d'adéquation estimé ({cvAnalysis.fileName})</div>
+                      </div>
+                      <button onClick={saveAnalysisToNotes} className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3.5 py-2 rounded-lg font-medium flex items-center gap-1.5">
+                        <i data-lucide="bookmark" className="w-3.5 h-3.5"></i> Enregistrer dans les Notes
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                      <div>
+                        <div className="text-xs font-semibold text-emerald-400 mb-2">MOTS-CLÉS TROUVÉS</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {cvAnalysis.matches.map((m, i) => (
+                            <span key={i} className="bg-emerald-950/60 border border-emerald-800/50 text-emerald-300 text-xs px-2.5 py-1 rounded-md">{m}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-yellow-400 mb-2">MOTS-CLÉS MANQUANTS CONSEILLÉS</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {cvAnalysis.missing.map((m, i) => (
+                            <span key={i} className="bg-yellow-950/60 border border-yellow-800/50 text-yellow-300 text-xs px-2.5 py-1 rounded-md">{m}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
