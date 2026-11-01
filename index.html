@@ -171,7 +171,7 @@
       };
       const deleteEvent = (id) => setEvents(events.filter(e => e.id !== id));
 
-      // Upload CV sécurisé
+      // Upload CV sécurisé (Ultra-stable et fluide)
       const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -295,17 +295,54 @@
         return days;
       };
 
-      // Analyse CV
+      // Algorithme d'analyse de CV intelligent et professionnel
       const runCVAnalysis = () => {
-        const textToAnalyze = (cvTextContent + " " + cvFileName).toLowerCase();
-        const wordsJob = jobDesc.toLowerCase().split(/\W+/);
-        const keyWordsJob = [...new Set(wordsJob.filter(w => w.length > 3))];
+        const text = (cvTextContent + " " + cvFileName).toLowerCase();
+        
+        const techKeywords = ['solidworks', 'fusion', 'cisco', 'informatique', 'hardware', 'réseau', 'cad', '3d', 'python', 'html', 'css'];
+        const foundTech = techKeywords.filter(keyword => text.includes(keyword));
 
-        let matched = keyWordsJob.length > 0 ? keyWordsJob.filter(w => textToAnalyze.includes(w)) : ["expériences", "compétences", "formation", "projet"];
-        let missing = keyWordsJob.length > 0 ? keyWordsJob.filter(w => !textToAnalyze.includes(w)).slice(0, 5) : ["mots-clés de l'offre non renseignés"];
+        const hasContact = text.includes('@') || text.includes('06') || text.includes('07');
+        const hasFormation = text.includes('formation') || text.includes('lycée') || text.includes('bac') || text.includes('3ème');
+        const hasExperience = text.includes('stage') || text.includes('expérience') || text.includes('bénévole');
+        const hasCertifications = text.includes('certification') || text.includes('badge') || text.includes('credly') || text.includes('autodesk') || text.includes('cisco');
+        const hasProjectOrObjective = text.includes('recherche') || text.includes('pfmp') || text.includes('projet') || text.includes('bureau d\'étude');
 
-        const score = Math.min(100, Math.max(35, Math.round((matched.length / Math.max(1, keyWordsJob.length)) * 100) + 15));
-        setCvAnalysis({ score, matches: matched.slice(0, 8), missing, fileName: cvFileName || "CV téléchargé", date: new Date().toLocaleDateString('fr-FR') });
+        let score = 30; 
+        if (hasContact) score += 15;
+        if (hasFormation) score += 15;
+        if (hasExperience) score += 20;
+        if (hasCertifications) score += 10;
+        if (hasProjectOrObjective) score += 10;
+        
+        score += Math.min(10, foundTech.length * 2);
+
+        let matched = [];
+        let missing = [];
+
+        if (jobDesc.trim().length > 5) {
+          const jobWords = [...new Set(jobDesc.toLowerCase().split(/\W+/).filter(w => w.length > 3))];
+          matched = jobWords.filter(w => text.includes(w));
+          missing = jobWords.filter(w => !text.includes(w)).slice(0, 5);
+
+          const matchRatio = jobWords.length > 0 ? (matched.length / jobWords.length) : 0.5;
+          score = Math.round((score * 0.6) + (matchRatio * 40));
+        } else {
+          matched = foundTech.length > 0 ? foundTech : ["Compétences générales identifiées"];
+          if (!hasCertifications) missing.push("Ajouter des certifications ou badges en ligne");
+          if (!hasExperience) missing.push("Détailler davantage les missions en entreprise / stages");
+          if (missing.length === 0) missing.push("Penser à chiffrer ou illustrer les réalisations de projets");
+        }
+
+        const finalScore = Math.min(95, Math.max(40, score));
+
+        setCvAnalysis({
+          score: finalScore,
+          matches: matched.length > 0 ? matched : ["Structure globale correcte"],
+          missing: missing.length > 0 ? missing : ["Aucun défaut critique détecté"],
+          fileName: cvFileName || "CV analysé",
+          date: new Date().toLocaleDateString('fr-FR')
+        });
       };
 
       const saveAnalysisToNotes = () => {
@@ -773,14 +810,14 @@
                     </button>
                   </div>
 
-                  {/* Prévisualisation Iframe sécurisée */}
+                  {/* Prévisualisation Embed (Fluide et anti-crash) */}
                   <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 flex flex-col h-[400px]">
                     <div className="text-xs font-semibold text-gray-400 mb-3 flex items-center justify-between">
                       <span>APERÇU DU DOCUMENT</span>
                       <span className="text-blue-400">{cvFileName || 'Aucun fichier'}</span>
                     </div>
                     {cvPdfUrl ? (
-                      <iframe src={cvPdfUrl} className="w-full flex-1 rounded border border-gray-700 bg-white"></iframe>
+                      <embed src={cvPdfUrl} type="application/pdf" className="w-full flex-1 rounded border border-gray-700 bg-white" />
                     ) : (
                       <div className="flex-1 flex flex-col items-center justify-center text-gray-500 border border-dashed border-gray-800 rounded-lg">
                         <i data-lucide="file-text" className="w-10 h-10 mb-2 opacity-50"></i>
