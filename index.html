@@ -32,9 +32,7 @@
       // Navigation
       const [activeTab, setActiveTab] = useState('dashboard');
       const [infoOpen, setInfoOpen] = useState(false);
-      
-      // Les trois styles de vue pour l'Agenda ('grid' | 'list' | 'calendar')
-      const [calendarSubView, setCalendarSubView] = useState('grid');
+      const [calendarSubView, setCalendarSubView] = useState('calendar');
 
       // Profil
       const [userProfile, setUserProfile] = useState(() => {
@@ -57,7 +55,7 @@
       const [newNoteTitle, setNewNoteTitle] = useState('');
       const [newNoteContent, setNewNoteContent] = useState('');
 
-      // Agenda & Events avec conservation des Anniversaires (> 7 jours)
+      // Agenda & Événements Multi-jours / Heures
       const [events, setEvents] = useState(() => {
         const saved = localStorage.getItem('kore_events');
         if (!saved) return [];
@@ -70,7 +68,7 @@
             const isAnniversary = titleLower.includes('anniv') || titleLower.includes('anniversaire') || titleLower.includes('birthday') || ev.category === 'Anniv';
             if (isAnniversary) return true;
             
-            const evDate = new Date(ev.date);
+            const evDate = new Date(ev.endDate || ev.date);
             const diffDays = (now - evDate) / (1000 * 60 * 60 * 24);
             return diffDays <= 7;
           });
@@ -81,15 +79,17 @@
 
       const [newEventTitle, setNewEventTitle] = useState('');
       const [newEventDate, setNewEventDate] = useState('');
+      const [newEventEndDate, setNewEventEndDate] = useState('');
+      const [newEventTime, setNewEventTime] = useState('');
       const [newEventCategory, setNewEventCategory] = useState('RDV');
 
-      // Synchro Google API State
+      // Google OAuth State
       const [googleClientId, setGoogleClientId] = useState(() => {
         return localStorage.getItem('kore_gclientId') || '';
       });
       const [syncStatus, setSyncStatus] = useState('');
 
-      // CV Analyzer State & Persistence
+      // CV Analyzer State
       const [cvFileName, setCvFileName] = useState('');
       const [cvPdfUrl, setCvPdfUrl] = useState('');
       const [cvTextContent, setCvTextContent] = useState('');
@@ -99,11 +99,11 @@
         return saved ? JSON.parse(saved) : null;
       });
 
-      // State pour le Calendrier Visuel Mensuel
+      // Calendrier Visuel Mensuel
       const [currentDate, setCurrentDate] = useState(new Date());
       const [selectedDateStr, setSelectedDateStr] = useState(new Date().toISOString().split('T')[0]);
 
-      // Sauvegardes dans localStorage
+      // Persistence LocalStorage
       useEffect(() => { localStorage.setItem('kore_userProfile', JSON.stringify(userProfile)); }, [userProfile]);
       useEffect(() => { localStorage.setItem('kore_tasks', JSON.stringify(tasks)); }, [tasks]);
       useEffect(() => { localStorage.setItem('kore_notes', JSON.stringify(notes)); }, [notes]);
@@ -111,21 +111,21 @@
       useEffect(() => { localStorage.setItem('kore_gclientId', googleClientId); }, [googleClientId]);
       useEffect(() => { localStorage.setItem('kore_cvAnalysis', JSON.stringify(cvAnalysis)); }, [cvAnalysis]);
 
-      // Rendu des icônes Lucide
+      // Rendu des icônes Lucide sans conflit Virtual DOM
       useEffect(() => {
         const timer = setTimeout(() => {
           if (window.lucide) window.lucide.createIcons();
         }, 50);
         return () => clearTimeout(timer);
-      }, [activeTab, calendarSubView, tasks, events, notes, cvAnalysis, infoOpen, currentDate, selectedDateStr]);
+      }, [activeTab, calendarSubView, tasks, events, notes, cvAnalysis, infoOpen, currentDate, selectedDateStr, cvPdfUrl]);
 
-      // Handlers Profil
+      // Profile Handlers
       const handleProfileChange = (e) => {
         const { name, value } = e.target;
         setUserProfile(prev => ({ ...prev, [name]: value }));
       };
 
-      // Handlers Kanban
+      // Kanban Handlers
       const addTask = (e) => {
         e.preventDefault();
         if (!newTaskTitle.trim()) return;
@@ -135,7 +135,7 @@
       const moveTask = (id, newStatus) => setTasks(tasks.map(t => t.id === id ? { ...t, status: newStatus } : t));
       const deleteTask = (id) => setTasks(tasks.filter(t => t.id !== id));
 
-      // Handlers Notes
+      // Notes Handlers
       const addNote = (e) => {
         if (e) e.preventDefault();
         if (!newNoteTitle.trim() && !newNoteContent.trim()) return;
@@ -145,20 +145,44 @@
       };
       const deleteNote = (id) => setNotes(notes.filter(n => n.id !== id));
 
-      // Handlers Agenda
+      // Agenda Handlers
       const addEvent = (e) => {
         e.preventDefault();
         if (!newEventTitle.trim() || !newEventDate) return;
-        setEvents([...events, { id: Date.now(), title: newEventTitle, date: newEventDate, category: newEventCategory }]);
+        setEvents([...events, { 
+          id: Date.now(), 
+          title: newEventTitle, 
+          date: newEventDate, 
+          endDate: newEventEndDate || newEventDate, 
+          time: newEventTime, 
+          category: newEventCategory 
+        }]);
         setNewEventTitle('');
         setNewEventDate('');
+        setNewEventEndDate('');
+        setNewEventTime('');
       };
       const deleteEvent = (id) => setEvents(events.filter(e => e.id !== id));
 
-      // Google Calendar Sync
+      // Upload CV sécurisé avec Iframe + FileReader
+      const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setCvFileName(file.name);
+        
+        if (cvPdfUrl) { URL.revokeObjectURL(cvPdfUrl); }
+        const fileUrl = URL.createObjectURL(file);
+        setCvPdfUrl(fileUrl);
+
+        const reader = new FileReader();
+        reader.onload = (event) => { setCvTextContent(event.target.result || file.name); };
+        reader.readAsText(file);
+      };
+
+      // Synchronisation Google Calendar
       const handleGoogleSync = () => {
         if (window.location.protocol === 'file:') {
-          setSyncStatus("⚠️ Google OAuth ne fonctionne pas sur fichier local (file://). Publie sur GitHub Pages !");
+          setSyncStatus("⚠️ Google OAuth ne fonctionne pas sur fichier local (file://). Publie ton site sur GitHub Pages !");
           return;
         }
         if (!googleClientId.trim()) {
@@ -181,19 +205,35 @@
                 });
                 const data = await res.json();
                 if (data.items) {
-                  const fetchedEvents = data.items.map(item => ({
-                    id: item.id,
-                    title: item.summary || 'Événement sans titre',
-                    date: item.start?.dateTime ? item.start.dateTime.split('T')[0] : (item.start?.date || ''),
-                    category: 'RDV'
-                  })).filter(e => e.date);
+                  const fetchedEvents = data.items.map(item => {
+                    const startRaw = item.start?.dateTime || item.start?.date || '';
+                    const endRaw = item.end?.dateTime || item.end?.date || startRaw;
+                    const startDate = startRaw.split('T')[0];
+                    let endDate = endRaw.split('T')[0];
+                    
+                    if (!item.start?.dateTime && startDate !== endDate) {
+                      const d = new Date(endDate);
+                      d.setDate(d.getDate() - 1);
+                      endDate = d.toISOString().split('T')[0];
+                    }
+                    const time = item.start?.dateTime ? item.start.dateTime.split('T')[1].substring(0, 5) : '';
+
+                    return {
+                      id: item.id,
+                      title: item.summary || 'Événement sans titre',
+                      date: startDate,
+                      endDate: endDate,
+                      time: time,
+                      category: 'RDV'
+                    };
+                  }).filter(e => e.date);
 
                   setEvents(prev => {
                     const existingIds = new Set(prev.map(p => p.id));
                     const combined = [...prev];
                     const now = new Date();
                     fetchedEvents.forEach(fe => {
-                      const evDate = new Date(fe.date);
+                      const evDate = new Date(fe.endDate || fe.date);
                       const diffDays = (now - evDate) / (1000 * 60 * 60 * 24);
                       if (!existingIds.has(fe.id) && diffDays <= 7) {
                         combined.push(fe);
@@ -214,42 +254,32 @@
         }
       };
 
-      // Navigation Calendrier Visuel
+      // Helper pour vérifier si une date est couverte par un événement multi-jours
+      const isEventOnDate = (ev, targetDateStr) => {
+        const start = ev.date;
+        const end = ev.endDate || ev.date;
+        return targetDateStr >= start && targetDateStr <= end;
+      };
+
+      // Générateur de grille mensuelle
       const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
       const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
 
-      // Générateur de grille mensuelle
       const generateCalendarDays = () => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const firstDayIndex = new Date(year, month, 1).getDay();
         const totalDays = new Date(year, month + 1, 0).getDate();
-        
-        // Ajustement pour commencer le lundi (1 = Lundi, 0 = Dimanche)
         const startDay = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
         const days = [];
 
-        for (let i = 0; i < startDay; i++) {
-          days.push(null);
-        }
+        for (let i = 0; i < startDay; i++) { days.push(null); }
         for (let d = 1; d <= totalDays; d++) {
           const formattedMonth = String(month + 1).padStart(2, '0');
           const formattedDay = String(d).padStart(2, '0');
           days.push(`${year}-${formattedMonth}-${formattedDay}`);
         }
         return days;
-      };
-
-      // Fichier CV Upload
-      const handleFileUpload = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        setCvFileName(file.name);
-        setCvPdfUrl(URL.createObjectURL(file));
-
-        const reader = new FileReader();
-        reader.onload = (event) => { setCvTextContent(event.target.result || file.name); };
-        reader.readAsText(file);
       };
 
       // Analyse CV
@@ -273,7 +303,7 @@
         alert("Résultat de l'analyse sauvegardé dans les Notes !");
       };
 
-      // JSON Export/Import
+      // Export/Import JSON
       const exportData = () => {
         const data = { userProfile, tasks, notes, events, cvAnalysis, exportedAt: new Date().toISOString() };
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
@@ -316,7 +346,7 @@
       return (
         <div className="flex min-h-screen bg-gray-900 text-gray-100">
           
-          {/* Bouton Info */}
+          {/* Info System */}
           <div className="fixed top-4 right-4 z-50">
             <button onClick={() => setInfoOpen(!infoOpen)} className="w-9 h-9 bg-gray-800 hover:bg-gray-700 text-blue-400 border border-gray-700 rounded-full flex items-center justify-center shadow-lg transition-all" title="Informations">
               <i data-lucide="info" className="w-5 h-5"></i>
@@ -327,7 +357,7 @@
                   <i data-lucide="shield-check" className="w-5 h-5"></i>
                   <span>100 % Local & Confidentiel</span>
                 </div>
-                <p className="text-gray-300 text-xs">Données stockées exclusivement dans votre navigateur via <code className="bg-gray-900 px-1 py-0.5 rounded text-blue-300">localStorage</code>.</p>
+                <p className="text-gray-300 text-xs">Données sauvegardées en toute sécurité dans votre navigateur via <code className="bg-gray-900 px-1 py-0.5 rounded text-blue-300">localStorage</code>.</p>
               </div>
             )}
           </div>
@@ -359,7 +389,7 @@
               </nav>
             </div>
 
-            {/* Profil & Sauvegarde */}
+            {/* Profile & Backup */}
             <div className="pt-6 border-t border-gray-800 space-y-4">
               <div className="bg-gray-900/60 p-3 rounded-lg border border-gray-800 space-y-2">
                 <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -384,10 +414,10 @@
             </div>
           </aside>
 
-          {/* Main Content */}
+          {/* Content Main */}
           <main className="flex-1 p-8 overflow-y-auto">
             
-            {/* Tableau de bord */}
+            {/* Dashboard View */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6">
                 <div>
@@ -483,22 +513,18 @@
               </div>
             )}
 
-            {/* Agenda View avec les 3 styles d'affichage */}
+            {/* Agenda View */}
             {activeTab === 'calendar' && (
               <div className="space-y-6">
                 <div className="flex justify-between items-center flex-wrap gap-4">
                   <h1 className="text-2xl font-bold text-white">Agenda & Événements</h1>
                   
-                  {/* LES TROIS STYLES DE VUE */}
                   <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700 gap-1">
-                    <button onClick={() => setCalendarSubView('grid')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${calendarSubView === 'grid' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                      🔲 Grille / Cartes
-                    </button>
-                    <button onClick={() => setCalendarSubView('list')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${calendarSubView === 'list' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                      📋 Liste Détaillée
-                    </button>
                     <button onClick={() => setCalendarSubView('calendar')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${calendarSubView === 'calendar' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>
                       📅 Calendrier Mensuel
+                    </button>
+                    <button onClick={() => setCalendarSubView('list')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${calendarSubView === 'list' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+                      📋 Agenda (Liste)
                     </button>
                   </div>
                 </div>
@@ -513,70 +539,28 @@
                   {syncStatus && <div className="text-xs bg-gray-900 p-2.5 rounded border border-gray-700 text-blue-300">{syncStatus}</div>}
                 </div>
 
-                {/* Formulaire ajout événement avec catégories */}
-                <form onSubmit={addEvent} className="flex gap-2 max-w-xl flex-wrap">
-                  <input type="text" placeholder="Titre de l'événement..." value={newEventTitle} onChange={e => setNewEventTitle(e.target.value)} className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100 min-w-[200px]" />
-                  <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3.5 py-2 text-sm text-gray-100" />
-                  <select value={newEventCategory} onChange={e => setNewEventCategory(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-gray-100">
-                    <option value="RDV">RDV</option>
-                    <option value="Devoir">Devoir</option>
-                    <option value="Sport">Sport</option>
-                    <option value="Anniv">Anniv</option>
-                    <option value="Autre">Autre</option>
-                  </select>
-                  <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg font-medium">Ajouter</button>
+                {/* Ajout événement multi-jours / heure */}
+                <form onSubmit={addEvent} className="bg-gray-800/40 border border-gray-800 p-4 rounded-xl space-y-3">
+                  <div className="text-xs font-semibold text-gray-300">CRÉER UN ÉVÉNEMENT</div>
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                    <input type="text" placeholder="Titre..." value={newEventTitle} onChange={e => setNewEventTitle(e.target.value)} className="md:col-span-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100" />
+                    <input type="date" title="Date de début" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100" />
+                    <input type="date" title="Date de fin (optionnelle)" value={newEventEndDate} onChange={e => setNewEventEndDate(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100" />
+                    <input type="time" title="Heure (optionnelle)" value={newEventTime} onChange={e => setNewEventTime(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100" />
+                  </div>
+                  <div className="flex justify-between items-center pt-1">
+                    <select value={newEventCategory} onChange={e => setNewEventCategory(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100">
+                      <option value="RDV">RDV</option>
+                      <option value="Devoir">Devoir</option>
+                      <option value="Sport">Sport</option>
+                      <option value="Anniv">Anniv</option>
+                      <option value="Autre">Autre</option>
+                    </select>
+                    <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-5 py-2 rounded-lg font-medium">Ajouter l'événement</button>
+                  </div>
                 </form>
 
-                {/* STYLE 1 : VUE GRILLE / CARTES */}
-                {calendarSubView === 'grid' && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {events.length === 0 ? (
-                      <p className="text-sm text-gray-500 italic col-span-3">Aucun événement planifié.</p>
-                    ) : (
-                      events.map(ev => (
-                        <div key={ev.id} className="bg-gray-800/60 border border-gray-700 p-4 rounded-xl space-y-3 flex flex-col justify-between">
-                          <div>
-                            <div className="flex justify-between items-start mb-2">
-                              <span className={`text-xs px-2 py-0.5 rounded border ${getCategoryBadge(ev.category)}`}>{ev.category || 'RDV'}</span>
-                              <span className="text-xs text-gray-400">📅 {ev.date}</span>
-                            </div>
-                            <h3 className="font-semibold text-gray-100 text-sm">{ev.title}</h3>
-                          </div>
-                          <div className="flex justify-end pt-2 border-t border-gray-750">
-                            <button onClick={() => deleteEvent(ev.id)} className="text-xs text-red-400 hover:bg-gray-700 px-2 py-1 rounded">Supprimer</button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-
-                {/* STYLE 2 : VUE LISTE DÉTAILLÉE */}
-                {calendarSubView === 'list' && (
-                  <div className="bg-gray-800/30 border border-gray-800 rounded-xl p-4">
-                    <h3 className="text-xs font-semibold text-gray-400 mb-3">LISTE COMPLÈTE DE L'AGENDA</h3>
-                    <div className="space-y-2">
-                      {events.length === 0 ? (
-                        <p className="text-sm text-gray-500 italic p-2">Aucun événement planifié.</p>
-                      ) : (
-                        events.map(ev => (
-                          <div key={ev.id} className="bg-gray-800 p-3 rounded-lg border border-gray-700 flex justify-between items-center text-sm">
-                            <div className="flex items-center gap-3">
-                              <span className={`text-xs px-2 py-0.5 rounded border ${getCategoryBadge(ev.category)}`}>{ev.category || 'RDV'}</span>
-                              <div>
-                                <div className="font-medium text-gray-200">{ev.title}</div>
-                                <div className="text-xs text-gray-400">📅 {ev.date}</div>
-                              </div>
-                            </div>
-                            <button onClick={() => deleteEvent(ev.id)} className="text-xs text-red-400 hover:bg-gray-700 px-2 py-1 rounded">Supprimer</button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* STYLE 3 : CALENDRIER MENSUEL INTERACTIF */}
+                {/* VUE CALENDRIER MENSUEL */}
                 {calendarSubView === 'calendar' && (
                   <div className="bg-gray-800/30 border border-gray-800 rounded-xl p-6 space-y-4">
                     <div className="flex justify-between items-center">
@@ -585,7 +569,7 @@
                       </h2>
                       <div className="flex gap-2">
                         <button onClick={prevMonth} className="bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded text-xs">Mois préc.</button>
-                        <button onClick={setCurrentDate.bind(null, new Date())} className="bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded text-xs">Aujourd'hui</button>
+                        <button onClick={() => setCurrentDate(new Date())} className="bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded text-xs">Aujourd'hui</button>
                         <button onClick={nextMonth} className="bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded text-xs">Mois suiv.</button>
                       </div>
                     </div>
@@ -597,7 +581,7 @@
                     <div className="grid grid-cols-7 gap-2">
                       {generateCalendarDays().map((dayStr, index) => {
                         if (!dayStr) return <div key={index} className="bg-gray-900/20 rounded-lg h-24"></div>;
-                        const dayEvents = events.filter(e => e.date === dayStr);
+                        const dayEvents = events.filter(e => isEventOnDate(e, dayStr));
                         const isSelected = selectedDateStr === dayStr;
 
                         return (
@@ -612,8 +596,9 @@
                             </div>
                             <div className="space-y-1 overflow-y-auto">
                               {dayEvents.map(ev => (
-                                <div key={ev.id} className="text-[10px] bg-gray-900 text-gray-200 px-1 py-0.5 rounded truncate" title={ev.title}>
-                                  {ev.title}
+                                <div key={ev.id} className="text-[10px] bg-gray-900 text-gray-200 px-1 py-0.5 rounded truncate flex items-center gap-1" title={ev.title}>
+                                  {ev.time && <span className="text-blue-400 font-mono text-[9px]">{ev.time}</span>}
+                                  <span className="truncate">{ev.title}</span>
                                 </div>
                               ))}
                             </div>
@@ -622,16 +607,52 @@
                       })}
                     </div>
 
-                    {/* Prévisualisation des événements de la date sélectionnée */}
+                    {/* Prévisualisation des événements du jour sélectionné */}
                     <div className="bg-gray-800/60 border border-gray-700 p-4 rounded-xl mt-4 space-y-2">
                       <h4 className="text-xs font-semibold text-blue-400 uppercase tracking-wider">Événements pour le {selectedDateStr}</h4>
-                      {events.filter(e => e.date === selectedDateStr).length === 0 ? (
+                      {events.filter(e => isEventOnDate(e, selectedDateStr)).length === 0 ? (
                         <p className="text-xs text-gray-500 italic">Aucun événement ce jour-là.</p>
                       ) : (
-                        events.filter(e => e.date === selectedDateStr).map(ev => (
-                          <div key={ev.id} className="flex justify-between items-center text-xs bg-gray-900 p-2 rounded border border-gray-750">
-                            <span className="font-medium text-gray-200">{ev.title}</span>
+                        events.filter(e => isEventOnDate(e, selectedDateStr)).map(ev => (
+                          <div key={ev.id} className="flex justify-between items-center text-xs bg-gray-900 p-2.5 rounded border border-gray-750">
+                            <div className="flex items-center gap-2">
+                              {ev.time && <span className="bg-blue-950 text-blue-300 px-1.5 py-0.5 rounded border border-blue-800 font-mono text-[10px]">{ev.time}</span>}
+                              <span className="font-medium text-gray-200">{ev.title}</span>
+                              {ev.endDate && ev.endDate !== ev.date && (
+                                <span className="text-[10px] text-gray-400">(du {ev.date} au {ev.endDate})</span>
+                              )}
+                            </div>
                             <span className={`px-2 py-0.5 rounded border ${getCategoryBadge(ev.category)}`}>{ev.category || 'RDV'}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* VUE LISTE */}
+                {calendarSubView === 'list' && (
+                  <div className="bg-gray-800/30 border border-gray-800 rounded-xl p-4">
+                    <h3 className="text-xs font-semibold text-gray-400 mb-3">LISTE DES ÉVÉNEMENTS</h3>
+                    <div className="space-y-2">
+                      {events.length === 0 ? (
+                        <p className="text-sm text-gray-500 italic p-2">Aucun événement planifié.</p>
+                      ) : (
+                        events.map(ev => (
+                          <div key={ev.id} className="bg-gray-800 p-3 rounded-lg border border-gray-700 flex justify-between items-center text-sm">
+                            <div className="flex items-center gap-3">
+                              <span className={`text-xs px-2 py-0.5 rounded border ${getCategoryBadge(ev.category)}`}>{ev.category || 'RDV'}</span>
+                              <div>
+                                <div className="font-medium text-gray-200 flex items-center gap-2">
+                                  <span>{ev.title}</span>
+                                  {ev.time && <span className="text-xs text-blue-400 font-mono">({ev.time})</span>}
+                                </div>
+                                <div className="text-xs text-gray-400">
+                                  📅 {ev.date} {ev.endDate && ev.endDate !== ev.date ? `➔ ${ev.endDate}` : ''}
+                                </div>
+                              </div>
+                            </div>
+                            <button onClick={() => deleteEvent(ev.id)} className="text-xs text-red-400 hover:bg-gray-700 px-2 py-1 rounded">Supprimer</button>
                           </div>
                         ))
                       )}
@@ -696,15 +717,14 @@
                     </button>
                   </div>
 
+                  {/* Prévisualisation Iframe sécurisée */}
                   <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 flex flex-col h-[400px]">
                     <div className="text-xs font-semibold text-gray-400 mb-3 flex items-center justify-between">
                       <span>APERÇU DU DOCUMENT</span>
                       <span className="text-blue-400">{cvFileName || 'Aucun fichier'}</span>
                     </div>
                     {cvPdfUrl ? (
-                      <object data={cvPdfUrl} type="application/pdf" className="w-full flex-1 rounded border border-gray-700">
-                        <p className="text-xs text-gray-400 p-4">Aperçu du fichier chargé : {cvFileName}</p>
-                      </object>
+                      <iframe src={cvPdfUrl} className="w-full flex-1 rounded border border-gray-700 bg-white"></iframe>
                     ) : (
                       <div className="flex-1 flex flex-col items-center justify-center text-gray-500 border border-dashed border-gray-800 rounded-lg">
                         <i data-lucide="file-text" className="w-10 h-10 mb-2 opacity-50"></i>
